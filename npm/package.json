@@ -1,0 +1,49 @@
+{
+  "name": "@crlian/ai-router",
+  "version": "0.1.0",
+  "description": "AI Router - Intelligent routing for AI coding assistants",
+  "main": "index.js",
+  "bin": {
+    "ai-router": "./bin/ai-router.js"
+  },
+  "scripts": {
+    "postinstall": "node install.js",
+    "test": "node bin/ai-router.js --help"
+  },
+  "keywords": [
+    "ai",
+    "coding",
+    "assistant",
+    "claude",
+    "codex",
+    "router",
+    "cli"
+  ],
+  "author": "Cesar William <cesar@example.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/crlian/ai-dispatcher.git"
+  },
+  "bugs": {
+    "url": "https://github.com/crlian/ai-dispatcher/issues"
+  },
+  "homepage": "https://github.com/crlian/ai-dispatcher#readme",
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "files": [
+    "bin/",
+    "install.js",
+    "README.md"
+  ]
+}
