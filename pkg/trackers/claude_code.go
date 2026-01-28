@@ -133,20 +133,52 @@ func (t *ClaudeCodeTracker) getUsage() (*UsageResponse, error) {
 }
 
 func getClaudeAccessToken() (string, error) {
+	creds, err := readCredentialsFromKeychain()
+	if err != nil {
+		return "", err
+	}
+
+	// Check if token is expired
+	if isTokenExpired(creds.ClaudeAiOauth.ExpiresAt) {
+		log.Printf("Access token expired, refreshing via Claude PTY")
+		if err := refreshTokenViaPTY(); err != nil {
+			log.Printf("Warning: failed to refresh token via PTY: %v", err)
+		}
+
+		// Re-read credentials from Keychain after refresh
+		creds, err = readCredentialsFromKeychain()
+		if err != nil {
+			return "", fmt.Errorf("failed to read refreshed credentials: %w", err)
+		}
+	}
+
+	return creds.ClaudeAiOauth.AccessToken, nil
+}
+
+func readCredentialsFromKeychain() (*Credentials, error) {
 	cmd := exec.Command("security", "find-generic-password", "-s", "Claude Code-credentials", "-w")
 	output, err := cmd.Output()
 	if err != nil {
 		log.Printf("Error executing security command: %v", err)
-		return "", fmt.Errorf("failed to retrieve Claude Code credentials: %v", err)
+		return nil, fmt.Errorf("failed to retrieve Claude Code credentials: %v", err)
 	}
 
 	var creds Credentials
 	if err := json.Unmarshal(output, &creds); err != nil {
 		log.Printf("Error parsing credentials JSON: %v", err)
-		return "", fmt.Errorf("failed to parse Claude Code credentials: %v", err)
+		return nil, fmt.Errorf("failed to parse Claude Code credentials: %v", err)
 	}
 
-	return creds.ClaudeAiOauth.AccessToken, nil
+	return &creds, nil
+}
+
+func isTokenExpired(expiresAt int64) bool {
+	return time.Now().Unix() > expiresAt
+}
+
+func refreshTokenViaPTY() error {
+	cmd := exec.Command("claude")
+	return cmd.Run()
 }
 
 func fetchClaudeUsage(accessToken string) (*UsageResponse, error) {
