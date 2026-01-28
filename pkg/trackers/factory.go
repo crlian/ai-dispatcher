@@ -12,7 +12,11 @@ func GetTracker(toolType ToolType) (UsageTracker, error) {
 		}
 		return tracker, nil
 	case CodexTool:
-		return nil, fmt.Errorf("codex is not currently supported (tool does not exist)")
+		tracker := NewCodexTracker()
+		if tracker == nil {
+			return nil, fmt.Errorf("codex tracker not available")
+		}
+		return tracker, nil
 	case OpenCodeTool:
 		return nil, fmt.Errorf("opencode is not currently supported (tool does not exist)")
 	default:
@@ -21,17 +25,21 @@ func GetTracker(toolType ToolType) (UsageTracker, error) {
 }
 
 // GetAllTrackers returns trackers for all available tools
-// Currently only Claude Code is supported
+// Currently Claude Code and Codex are supported
 func GetAllTrackers() []UsageTracker {
 	trackers := []UsageTracker{}
 
-	// Add Claude Code tracker (only one currently supported)
+	// Add Claude Code tracker
 	if tracker := NewClaudeCodeTracker(); tracker != nil {
 		trackers = append(trackers, tracker)
 	}
 
-	// Codex and OpenCode are not currently supported
-	// as the required tools don't exist
+	// Add Codex tracker
+	if tracker := NewCodexTracker(); tracker != nil {
+		trackers = append(trackers, tracker)
+	}
+
+	// OpenCode is not currently supported
 
 	return trackers
 }

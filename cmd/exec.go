@@ -39,10 +39,10 @@ The router will:
   5. Execute the task
 
 Examples:
-  ai-router exec "fix bug in auth.go"
-  ai-router exec "refactor user service" --verbose
-  ai-router exec "add comments" --force opencode
-  ai-router exec "implement feature" --dry-run`,
+  ai-dispatcher exec "fix bug in auth.go"
+  ai-dispatcher exec "refactor user service" --verbose
+  ai-dispatcher exec "add comments" --force opencode
+  ai-dispatcher exec "implement feature" --dry-run`,
 	Args: cobra.ExactArgs(1),
 	Run:  runExec,
 }

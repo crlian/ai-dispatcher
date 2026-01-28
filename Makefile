@@ -1,7 +1,7 @@
 .PHONY: build test clean install build-all help
 
 # Binary name
-BINARY_NAME=ai-router
+BINARY_NAME=ai-dispatcher
 
 # Version from git
 VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")

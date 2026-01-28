@@ -16,9 +16,9 @@ var (
 
 // rootCmd represents the base command
 var rootCmd = &cobra.Command{
-	Use:   "ai-router",
-	Short: "AI Router - Intelligent routing for AI coding assistants",
-	Long: `AI Router orchestrates multiple AI coding assistants (Claude Code, Codex, OpenCode)
+	Use:   "ai-dispatcher",
+	Short: "AI Dispatcher - Intelligent routing for AI coding assistants",
+	Long: `AI Dispatcher orchestrates multiple AI coding assistants (Claude Code, Codex, OpenCode)
 and routes tasks intelligently to optimize costs and availability.
 
 Features:
@@ -38,7 +38,7 @@ func Execute() error {
 func init() {
 	// Set version template
 	rootCmd.SetVersionTemplate(fmt.Sprintf(
-		"AI Router version %s\nBuild time: %s\nGit commit: %s\n",
+		"AI Dispatcher version %s\nBuild time: %s\nGit commit: %s\n",
 		Version, BuildTime, GitCommit,
 	))
 
