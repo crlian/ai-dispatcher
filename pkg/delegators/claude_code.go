@@ -18,7 +18,7 @@ func NewClaudeCodeDelegator() *ClaudeCodeDelegator {
 		BaseDelegator: NewBaseDelegator(
 			"Claude Code",
 			trackers.ClaudeCodeTool,
-			"claude-code",
+			"claude",
 		),
 	}
 }
@@ -26,10 +26,12 @@ func NewClaudeCodeDelegator() *ClaudeCodeDelegator {
 // Execute runs a task using Claude Code
 func (ccd *ClaudeCodeDelegator) Execute(ctx context.Context, task string) (*DelegationResult, error) {
 	// Build command arguments
-	// Using non-interactive mode with the task as an argument
+	// Using print mode (-p) for non-interactive execution with Haiku model
 	args := []string{
-		"--non-interactive",
+		"-p",
 		task,
+		"--model",
+		"haiku",
 	}
 
 	// Execute command
