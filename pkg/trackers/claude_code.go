@@ -1,6 +1,7 @@
 package trackers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -137,11 +138,10 @@ func getClaudeAccessToken() (string, error) {
 	if err != nil {
 		return "", err
 	}
-
 	// Check if token is expired
 	if isTokenExpired(creds.ClaudeAiOauth.ExpiresAt) {
 		log.Printf("Access token expired, refreshing via Claude PTY")
-		if err := refreshTokenViaPTY(); err != nil {
+		if err := refreshTokenViaPTY(); err != nil && err.Error() != "signal: killed" {
 			log.Printf("Warning: failed to refresh token via PTY: %v", err)
 		}
 
@@ -162,7 +162,6 @@ func readCredentialsFromKeychain() (*Credentials, error) {
 		log.Printf("Error executing security command: %v", err)
 		return nil, fmt.Errorf("failed to retrieve Claude Code credentials: %v", err)
 	}
-
 	var creds Credentials
 	if err := json.Unmarshal(output, &creds); err != nil {
 		log.Printf("Error parsing credentials JSON: %v", err)
@@ -173,11 +172,15 @@ func readCredentialsFromKeychain() (*Credentials, error) {
 }
 
 func isTokenExpired(expiresAt int64) bool {
-	return time.Now().Unix() > expiresAt
+	expiresAtSeconds := expiresAt / 1000 // Convert milliseconds to seconds
+	return time.Now().Unix() > expiresAtSeconds
 }
 
 func refreshTokenViaPTY() error {
-	cmd := exec.Command("claude")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "claude")
 	return cmd.Run()
 }
 
