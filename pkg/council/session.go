@@ -13,9 +13,10 @@ type Message struct {
 
 // Session holds the state of a council session
 type Session struct {
-	History   []Message
-	LastTool  string // Last mentioned tool
-	StartedAt time.Time
+	History     []Message
+	LastTool    string // Last mentioned tool
+	CurrentFile string // File currently under discussion
+	StartedAt   time.Time
 }
 
 // NewSession creates a new council session
@@ -48,4 +49,14 @@ func (s *Session) GetLastTool() string {
 // GetHistory returns all messages in the session
 func (s *Session) GetHistory() []Message {
 	return s.History
+}
+
+// SetCurrentFile sets the file currently under discussion
+func (s *Session) SetCurrentFile(file string) {
+	s.CurrentFile = file
+}
+
+// GetCurrentFile returns the file currently under discussion
+func (s *Session) GetCurrentFile() string {
+	return s.CurrentFile
 }

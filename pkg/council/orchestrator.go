@@ -3,12 +3,28 @@ package council
 import (
 	"context"
 	"fmt"
+	"math/rand"
+	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/crlian/ai-dispatcher/pkg/delegators"
 	"github.com/crlian/ai-dispatcher/pkg/trackers"
 )
+
+// maxHistoryContext is the number of recent messages to include in prompts
+const maxHistoryContext = 3
+
+// toolPatterns contains regex patterns with word boundaries for tool detection
+var toolPatterns = map[string]*regexp.Regexp{
+	"claude":   regexp.MustCompile(`(?i)\bclaude\b`),
+	"codex":    regexp.MustCompile(`(?i)\bcodex\b`),
+	"opencode": regexp.MustCompile(`(?i)\bopencode\b`),
+}
+
+// filePattern detects file paths in messages (e.g., orchestrator.go, src/main.js)
+var filePattern = regexp.MustCompile(`[\w\-./]+\.(go|js|ts|tsx|jsx|py|rs|java|cpp|c|h|rb|php|swift|kt|scala|sh|yaml|yml|json|toml|md|sql)(?:\b|$)`)
 
 // Response represents a tool's response
 type Response struct {
@@ -83,109 +99,115 @@ func (o *Orchestrator) SetAvailableTools(available map[string]bool) {
 }
 
 // buildCouncilPrompt constructs a rich prompt with conversation history
-func (o *Orchestrator) buildCouncilPrompt(currentMessage string, isFirstMessage bool) string {
+func (o *Orchestrator) buildCouncilPrompt(currentMessage string) string {
 	var prompt strings.Builder
 
-	// System context - keep it minimal and consistent
-	if isFirstMessage {
-		prompt.WriteString("INSTRUCTIONS:\n")
-		prompt.WriteString("1. Language: Respond in the SAME LANGUAGE as the user.\n")
-		prompt.WriteString("2. Length: Maximum 2-3 short sentences.\n")
-		prompt.WriteString("3. Do not modify files. Only consult.\n")
-		prompt.WriteString("4. Participate in the debate as an expert. Do not explain who you are.\n\n")
+	// System context - council mode with rules
+	prompt.WriteString("[You are in a council with other AI tools (Claude, Codex, OpenCode) discussing a coding task. ")
+	prompt.WriteString("Give your unique perspective. You may agree or disagree with others. ")
+	prompt.WriteString("Rules: Match user's language. Max 2 sentences. No file changes. Be direct.]\n\n")
+
+	// Include current file under discussion if set
+	if currentFile := o.session.GetCurrentFile(); currentFile != "" {
+		prompt.WriteString(fmt.Sprintf("[File under discussion: %s - read it if you need context]\n\n", currentFile))
 	}
 
-	// Add conversation history if available - ONLY LAST 2 MESSAGES to save tokens
+	// Add conversation history - include last N messages for better context
 	history := o.session.GetHistory()
-	if len(history) > 0 {
-		prompt.WriteString("Contexto:\n")
-		// Get last 2 messages only
-		startIdx := len(history) - 2
-		if startIdx < 0 {
-			startIdx = 0
-		}
-		for i := startIdx; i < len(history); i++ {
-			msg := history[i]
-			switch msg.From {
-			case "user":
-				prompt.WriteString(fmt.Sprintf("Usuario: %s\n", msg.Content))
-			case "claude", "codex", "opencode":
-				// Include specific tool name so other tools know who said what
-				prompt.WriteString(fmt.Sprintf("%s: %s\n", msg.From, msg.Content))
+
+	// Calculate starting index for relevant history
+	startIdx := len(history) - maxHistoryContext
+	if startIdx < 0 {
+		startIdx = 0
+	}
+
+	relevantHistory := history[startIdx:]
+	// Filter out the last message if it's from the user (we add it as currentMessage)
+	if len(relevantHistory) > 0 && relevantHistory[len(relevantHistory)-1].From == "user" {
+		relevantHistory = relevantHistory[:len(relevantHistory)-1]
+	}
+
+	if len(relevantHistory) > 0 {
+		prompt.WriteString("Context:\n")
+		for _, msg := range relevantHistory {
+			content := msg.Content
+			// Truncate long messages
+			if len(content) > 150 {
+				content = content[:150] + "..."
 			}
+			prompt.WriteString(fmt.Sprintf("%s: %s\n", msg.From, content))
 		}
 		prompt.WriteString("\n")
 	}
 
 	// Current message
-	prompt.WriteString(fmt.Sprintf("Usuario: %s\n", currentMessage))
-	prompt.WriteString("Respuesta:")
+	prompt.WriteString(fmt.Sprintf("User: %s\n", currentMessage))
+	prompt.WriteString("Response:")
 
 	return prompt.String()
 }
 
-// restingMessages returns appropriate "unavailable" message for each tool
-func (o *Orchestrator) restingMessage(toolName string) string {
-	messages := map[string]string{
-		"claude":   "☕ Taking a break...",
-		"codex":    "🔋 Recharging...",
-		"opencode": "📴 Offline...",
-	}
-	if msg, ok := messages[toolName]; ok {
-		return msg
-	}
-	return "Unavailable"
-}
+// Broadcast sends a prompt to all available tools and returns a channel of responses.
+// Responses are sent as they arrive. The channel is closed when all tools have responded.
+func (o *Orchestrator) Broadcast(message string) <-chan Response {
+	responseChan := make(chan Response)
 
-// Broadcast sends a prompt to all available tools and returns their responses
-func (o *Orchestrator) Broadcast(message string) []Response {
-	responses := make([]Response, 0)
-	ctx, cancel := context.WithTimeout(context.Background(), o.timeout)
-	defer cancel()
+	go func() {
+		defer close(responseChan)
 
-	// Build rich prompt with history
-	prompt := o.buildCouncilPrompt(message, true)
+		var wg sync.WaitGroup
+		ctx, cancel := context.WithTimeout(context.Background(), o.timeout)
+		defer cancel()
 
-	// Query each tool (skip if not available)
-	toolNames := []string{"claude", "codex", "opencode"}
-	for _, toolName := range toolNames {
-		if o.useMocks {
-			// Use mock responses for testing
-			response := o.getMockResponse(toolName)
-			responses = append(responses, Response{
-				Tool:    toolName,
-				Content: response,
-			})
-			o.session.AddMessage(toolName, response)
-		} else {
-			// Check if tool is available - SKIP if not available
-			if available, ok := o.availableTools[toolName]; !ok || !available {
-				// Tool is not available, don't add to responses at all
+		// Build rich prompt with history
+		prompt := o.buildCouncilPrompt(message)
+
+		// Query each tool (skip if not available)
+		toolNames := []string{"claude", "codex", "opencode"}
+		for _, toolName := range toolNames {
+			if o.useMocks {
+				// Mock mode stays sequential (it's fast anyway)
+				response := o.getMockResponse(toolName)
+				responseChan <- Response{
+					Tool:    toolName,
+					Content: response,
+				}
+				o.session.AddMessage(toolName, response)
 				continue
 			}
 
-			// Use real delegator
-			if delegator, ok := o.delegators[toolName]; ok {
-				content, err := delegator.Query(ctx, prompt)
-				if err != nil {
-					// Only add errors if it's an available tool that failed
-					responses = append(responses, Response{
-						Tool:    toolName,
-						Content: fmt.Sprintf("[Error: %v]", err),
-						Error:   err,
-					})
-				} else {
-					responses = append(responses, Response{
-						Tool:    toolName,
-						Content: content,
-					})
-					o.session.AddMessage(toolName, content)
-				}
+			// Check if tool is available - SKIP if not available
+			if available, ok := o.availableTools[toolName]; !ok || !available {
+				continue
 			}
-		}
-	}
 
-	return responses
+			// Use real delegator with goroutines for parallel execution
+			wg.Add(1)
+			go func(name string) {
+				defer wg.Done()
+				if delegator, ok := o.delegators[name]; ok {
+					content, err := delegator.Query(ctx, prompt)
+					if err != nil {
+						responseChan <- Response{
+							Tool:    name,
+							Content: fmt.Sprintf("[Error: %v]", err),
+							Error:   err,
+						}
+					} else {
+						responseChan <- Response{
+							Tool:    name,
+							Content: content,
+						}
+						o.session.AddMessage(name, content)
+					}
+				}
+			}(toolName)
+		}
+
+		wg.Wait()
+	}()
+
+	return responseChan
 }
 
 // Query sends a prompt to a specific tool
@@ -217,8 +239,8 @@ func (o *Orchestrator) Query(tool, message string) Response {
 	ctx, cancel := context.WithTimeout(context.Background(), o.timeout)
 	defer cancel()
 
-	// Build rich prompt with history (not first message)
-	prompt := o.buildCouncilPrompt(message, false)
+	// Build rich prompt with history
+	prompt := o.buildCouncilPrompt(message)
 
 	if delegator, ok := o.delegators[tool]; ok {
 		content, err := delegator.Query(ctx, prompt)
@@ -290,12 +312,13 @@ func (o *Orchestrator) Execute(tool string) string {
 	return fmt.Sprintf("Herramienta '%s' no encontrada", tool)
 }
 
-// findOriginalTask extracts the first user message (the original task)
+// findOriginalTask extracts the last user message (the most recent/refined task)
 func (o *Orchestrator) findOriginalTask() string {
 	history := o.session.GetHistory()
-	for _, msg := range history {
-		if msg.From == "user" {
-			return msg.Content
+	// Search backwards to find the LAST user message (most recent task)
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].From == "user" {
+			return history[i].Content
 		}
 	}
 	return ""
@@ -333,7 +356,7 @@ func (o *Orchestrator) getMockResponse(tool string) string {
 	if !ok || len(responses) == 0 {
 		return "No tengo una opinión sobre eso."
 	}
-	return responses[0] // In real mode we'd randomize, but for simplicity return first
+	return responses[rand.Intn(len(responses))]
 }
 
 // generateMockFiles generates random file modification messages
@@ -358,33 +381,70 @@ func (o *Orchestrator) generateMockFiles() string {
 	return result.String()
 }
 
-// DetectTool checks if a message mentions a specific tool
+// DetectTool checks if a message mentions a specific tool using word boundaries
 func DetectTool(message string) string {
-	message = strings.ToLower(message)
-
-	// Find positions of each tool mention
-	claudePos := strings.Index(message, "claude")
-	codexPos := strings.Index(message, "codex")
-	opencodePos := strings.Index(message, "opencode")
-
-	// Return the one that appears first (lowest index, but not -1)
 	firstPos := -1
 	firstTool := ""
 
-	if claudePos != -1 {
-		firstPos = claudePos
-		firstTool = "claude"
-	}
-
-	if codexPos != -1 && (firstPos == -1 || codexPos < firstPos) {
-		firstPos = codexPos
-		firstTool = "codex"
-	}
-
-	if opencodePos != -1 && (firstPos == -1 || opencodePos < firstPos) {
-		firstPos = opencodePos
-		firstTool = "opencode"
+	for tool, pattern := range toolPatterns {
+		loc := pattern.FindStringIndex(message)
+		if loc != nil && (firstPos == -1 || loc[0] < firstPos) {
+			firstPos = loc[0]
+			firstTool = tool
+		}
 	}
 
 	return firstTool
+}
+
+// DetectFile extracts the first file path mentioned in a message
+func DetectFile(message string) string {
+	match := filePattern.FindString(message)
+	return match
+}
+
+// Plan generates an execution plan using the specified tool
+func (o *Orchestrator) Plan(tool string) (*Plan, error) {
+	// Resolve tool (use LastTool if not specified)
+	if tool == "" {
+		tool = o.session.GetLastTool()
+	}
+	if tool == "" {
+		return nil, fmt.Errorf("no hay herramienta seleccionada")
+	}
+
+	// Find the original task from history
+	task := o.findOriginalTask()
+	if task == "" {
+		return nil, fmt.Errorf("no se encontro la tarea original")
+	}
+
+	// Mock mode
+	if o.useMocks {
+		return GetMockPlan(tool, task, o.session), nil
+	}
+
+	// Verify tool availability
+	if available, ok := o.availableTools[tool]; !ok || !available {
+		return nil, fmt.Errorf("tool '%s' no esta disponible", tool)
+	}
+
+	// Build prompt and query
+	prompt := buildPlanPrompt(o.session, task)
+
+	ctx, cancel := context.WithTimeout(context.Background(), o.timeout)
+	defer cancel()
+
+	delegator, ok := o.delegators[tool]
+	if !ok {
+		return nil, fmt.Errorf("tool '%s' no encontrada", tool)
+	}
+
+	response, err := delegator.Query(ctx, prompt)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse response
+	return ParsePlanResponse(tool, task, response)
 }
