@@ -270,6 +270,33 @@ ai-dispatcher exec "task" --timeout 10m
 ai-dispatcher exec "task" --json
 ```
 
+### council
+
+Interactive council mode - Multiple AI tools discuss and debate before execution:
+
+```bash
+ai-dispatcher council              # Start interactive session (mock mode by default)
+ai-dispatcher council --real       # Connect to real AI tools
+```
+
+In council mode:
+- All available tools respond to the initial question
+- Mention a tool by name (`claude`, `codex`, `opencode`) to direct questions to it
+- Tools can debate and reference each other's responses
+- Type `ejecuta` to execute with the last mentioned tool
+- Type `exit` or `quit` to leave
+
+Example session:
+```bash
+[council] > Should we use JWT or session-based auth?
+[claude]  JWT is stateless and scalable...
+[codex]   Sessions are simpler to debug...
+[council] > claude, why JWT over sessions?
+[claude]  JWT allows horizontal scaling without shared storage...
+[council] > ejecuta claude
+[claude]  Executing... Files modified: auth/jwt.go
+```
+
 ### Flags
 
 - `--force <tool>`: Override automatic selection (claude-code, cursor, opencode)

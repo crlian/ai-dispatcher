@@ -45,6 +45,7 @@ func init() {
 	// Add subcommands
 	rootCmd.AddCommand(statusCmd)
 	rootCmd.AddCommand(execCmd)
+	rootCmd.AddCommand(councilCmd)
 }
 
 // exitWithError prints error and exits

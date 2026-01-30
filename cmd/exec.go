@@ -268,6 +268,9 @@ func outputExecText(result *PipelineResult) {
 	exec := result.ExecutionResult
 
 	if exec.Success {
+		fmt.Println()
+		fmt.Println(strings.Repeat("─", 40))
+		fmt.Println()
 		fmt.Printf("%s Task completed successfully\n", green("✓"))
 		fmt.Printf("   Tool: %s\n", exec.ToolName)
 		fmt.Printf("   Duration: %s\n", delegators.FormatDuration(exec.Duration))
@@ -276,9 +279,17 @@ func outputExecText(result *PipelineResult) {
 		if execVerbose && exec.Output != "" {
 			fmt.Println()
 			fmt.Println("Output:")
-			fmt.Println(delegators.TruncateOutput(exec.Output, 1000))
+			// Render markdown if output looks like markdown
+			output := exec.Output
+			if isLikelyMarkdown(output) {
+				output = delegators.RenderMarkdown(output)
+			}
+			fmt.Print(delegators.TruncateOutput(output, 5000))
 		}
 	} else {
+		fmt.Println()
+		fmt.Println(strings.Repeat("─", 40))
+		fmt.Println()
 		fmt.Printf("%s Task failed\n", red("✗"))
 		fmt.Printf("   Tool: %s\n", exec.ToolName)
 		fmt.Printf("   Duration: %s\n", delegators.FormatDuration(exec.Duration))
@@ -291,11 +302,30 @@ func outputExecText(result *PipelineResult) {
 		if exec.Output != "" {
 			fmt.Println()
 			fmt.Println("Output:")
-			fmt.Println(delegators.TruncateOutput(exec.Output, 1000))
+			// Render markdown if output looks like markdown
+			output := exec.Output
+			if isLikelyMarkdown(output) {
+				output = delegators.RenderMarkdown(output)
+			}
+			fmt.Print(delegators.TruncateOutput(output, 5000))
 		}
 	}
 
 	fmt.Println()
+}
+
+// isLikelyMarkdown checks if content contains markdown markers
+func isLikelyMarkdown(content string) bool {
+	// Check for common markdown patterns
+	markdownIndicators := []string{
+		"#", "**", "__", "```", "-", "*", ">",
+	}
+	for _, indicator := range markdownIndicators {
+		if strings.Contains(content, indicator) {
+			return true
+		}
+	}
+	return false
 }
 
 // outputExecJSON outputs execution result in JSON format
